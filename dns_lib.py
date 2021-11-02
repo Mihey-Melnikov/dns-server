@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 import socket
 import binascii
+import json
+import datetime
+import os
 
 
 ADDRESS = "8.8.8.8"
@@ -100,17 +103,21 @@ def split_answer(answer):
     return ANSWER
 
 
-def get_IP(ANSWER):
+def get_IP(ANSWER, url):
     """ Возвращает IP """
 
     RDLENGTH = int(''.join(ANSWER[10:12]), 16)
     RDATA_in_bites = ANSWER[12:12 + RDLENGTH]
     TYPE = int(''.join(ANSWER[2:4]), 16)
+    TTL = int(''.join(ANSWER[6:10]), 16)
+    death_time = datetime.datetime.now() + datetime.timedelta(seconds=TTL)
     if TYPE == 1:
         IP_list = []
         for i in RDATA_in_bites:
             IP_list.append(str(int(i, 16)))
-        return ".".join(IP_list)
+        ip = ".".join(IP_list)
+        cashing_new_data(url, ip, death_time)
+        return ip
     elif TYPE == 5:
         new_url = get_url_from_bites(RDATA_in_bites)
         return get_ip_from_url(new_url)
@@ -135,16 +142,49 @@ def get_url_from_bites(bites):
     return '.'.join(url)
 
 
-def parse_answer(answer):
+def parse_answer(answer, url):
     """ Работает с ответом DNS сервера """
 
     ANSWER = split_answer(answer)
-    return get_IP(ANSWER)
+    return get_IP(ANSWER, url)
 
 
 def get_ip_from_url(url):
     """ Основная функция получения IP-адреса по URL """
 
+    ip = check_data_in_cash(url)
+    if ip is not None:
+        return f"(from cash) {ip}"
     answer = send_udp_message(url, ADDRESS, PORT)
-    ip = parse_answer(answer)
+    ip = parse_answer(answer, url)
     return ip
+
+
+def cashing_new_data(url, ip, death_time):
+    """ Кэширует новые данные """
+
+    new_cash_data = {url: [ip, death_time.strftime('%X %x')],
+                     ip: [url, death_time.strftime('%X %x')]}
+    with open("cash.json", "r") as read_file:
+        old_cash_data = json.load(read_file)
+    with open("cash.json", "w") as write_file:
+        json.dump({**old_cash_data, **new_cash_data}, write_file)
+
+
+def check_data_in_cash(url):
+    """ Проверяет наличие данных в кэше """
+
+    if not os.path.exists("cash.json"):
+        with open("cash.json", "w") as write_file:
+            json.dump({}, write_file)
+            return None
+    with open("cash.json", "r") as read_file:
+        now = datetime.datetime.now()
+        cash = json.load(read_file)
+        if url in cash.keys():
+            if now < datetime.datetime.strptime(cash[url][1], '%X %x'):
+                return cash[url][0]
+            else:
+                del cash[cash[url][0]]
+                del cash[url]
+        return None
