@@ -101,31 +101,24 @@ def get_RDDATA(ip):
     return "".join(RDDATA)
 
 
-def get_request(url, type):
+def get_request(url):
     """ Формирует запрос к DNS серверу """
 
-    if type == "i":
-        return get_question_HEAD() + get_QUESTION(url)
-    return get_answer_HEAD() + get_ANSWER(url)
+    return get_question_HEAD() + get_QUESTION(url)
 
 
-def send_udp_message(url, address, port, type):
+def send_udp_message(url, address, port):
     """ Отправляет запрос на сервер """
 
-    message = get_request(url, type)
+    message = get_request(url)
     server_address = (address, port)
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.settimeout(10)
-    data = None
     try:
         sock.sendto(binascii.unhexlify(message), server_address)
         data, _ = sock.recvfrom(4096)
-    except:
-        return None
     finally:
         sock.close()
-    if data is None:
-        return None
     return binascii.hexlify(data).decode("utf-8")
 
 
@@ -138,9 +131,23 @@ def split_answer(answer):
         url_len = int(answer_in_bites[i], 16)
         i += url_len + 1
     ANSWER_start_index = i + 2 + 2 + 1
-    RDLENGTH = int(''.join(answer_in_bites[ANSWER_start_index + 10:ANSWER_start_index + 12]), 16)
-    ANSWER = answer_in_bites[ANSWER_start_index:ANSWER_start_index + 12 + RDLENGTH]
+    RDLENGTH = int(''.join(answer_in_bites[ANSWER_start_index + 10:
+                                           ANSWER_start_index + 12]), 16)
+    ANSWER = answer_in_bites[ANSWER_start_index:
+                             ANSWER_start_index + 12 + RDLENGTH]
     return ANSWER
+
+
+def get_URL(ANSWER, ip):
+    """ Возвращает URL """
+
+    RDLENGTH = int(''.join(ANSWER[10:12]), 16)
+    RDATA_in_bites = ANSWER[12:12 + RDLENGTH]
+    TTL = int(''.join(ANSWER[6:10]), 16)
+    death_time = datetime.datetime.now() + datetime.timedelta(seconds=TTL)
+    URL = get_url_from_bites(RDATA_in_bites[:RDATA_in_bites.index('00')])[4:]
+    cashing_new_data(URL, ip, death_time)
+    return URL
 
 
 def get_IP(ANSWER, url):
@@ -212,7 +219,7 @@ def get_ip_from_url(url):
     ip = check_data_in_cash(url)
     if ip is not None:
         return f"(from cash) {ip}"
-    answer = send_udp_message(url, ADDRESS, PORT, "i")
+    answer = send_udp_message(url, ADDRESS, PORT)
     ip = parse_answer(answer, url)
     return ip
 
@@ -223,11 +230,9 @@ def get_url_from_ip(ip):
     url = check_data_in_cash(ip)
     if url is not None:
         return f"(from cash) {url}"
-    question = send_udp_message(ip, ADDRESS, PORT, "u")
-    if question is None:
-        return "Что-то пошло не так!"
-    url = parse_question(question)
-    return url
+    question = send_udp_message(get_PTR(ip), ADDRESS, PORT)
+    url = split_answer(question)
+    return get_URL(url, ip)
 
 
 def cashing_new_data(url, ip, death_time):
