@@ -5,12 +5,11 @@ import json
 import datetime
 import os
 
-
 ADDRESS = "8.8.8.8"
 PORT = 53
 
 
-def get_hex(url):
+def get_hex_url(url):
     """ Возвращает байтовое представление секций URL """
 
     url_sections = url.split('.')
@@ -28,7 +27,7 @@ def get_hex(url):
 def get_QNAME(url):
     """ Возвращает имя URL для секции QNAME вопроса """
 
-    url_sections_in_hex = get_hex(url)
+    url_sections_in_hex = get_hex_url(url)
     QNAME = []
     for section in url_sections_in_hex:
         section_len_in_hex = format(len(section), 'x')
@@ -49,13 +48,25 @@ def get_PTR(ip):
     return '.'.join(reversed_ip) + '.in-addr.arpa.'
 
 
-def get_HEAD():
-    """ Возвращает байтовое представление заголовка запроса """
+def get_question_HEAD():
+    """ Возвращает байтовое представление заголовка запроса с вопросом """
 
     ID = "aaaa"
     parameters = "0100"  # RD=1, others=0
     QDCOUNT = "0001"
     ANCOUNT = "0000"
+    NSCOUNT = "0000"
+    ARCOUNT = "0000"
+    return "".join([ID, parameters, QDCOUNT, ANCOUNT, NSCOUNT, ARCOUNT])
+
+
+def get_answer_HEAD():
+    """ Возвращает байтовое представление заголовка запроса с ответом """
+
+    ID = "aaaa"
+    parameters = "8900"  # QR, Opcode, RD = 1
+    QDCOUNT = "0000"
+    ANCOUNT = "0001"
     NSCOUNT = "0000"
     ARCOUNT = "0000"
     return "".join([ID, parameters, QDCOUNT, ANCOUNT, NSCOUNT, ARCOUNT])
@@ -69,23 +80,52 @@ def get_QUESTION(url):
     return "".join([get_QNAME(url), QTYPE, QCLASS])
 
 
-def get_request(url):
+def get_ANSWER(ip):
+    """ Возвращает байтовое представление ответа запроса """
+
+    NAME = "c00c"
+    TYPE = "0001"
+    CLASS = "0001"
+    TTL = "00001000"
+    RDLENGTH = "0004"
+    return "".join([NAME, TYPE, CLASS, TTL, RDLENGTH, get_RDDATA(ip)])
+
+
+def get_RDDATA(ip):
+    """ Возвращает байтовое представление IP-адреса """
+
+    ip = ip.split(".")
+    RDDATA = []
+    for i in ip:
+        RDDATA.append(format(int(i), "x"))
+    return "".join(RDDATA)
+
+
+def get_request(url, type):
     """ Формирует запрос к DNS серверу """
 
-    return get_HEAD() + get_QUESTION(url)
+    if type == "i":
+        return get_question_HEAD() + get_QUESTION(url)
+    return get_answer_HEAD() + get_ANSWER(url)
 
 
-def send_udp_message(url, address, port):
+def send_udp_message(url, address, port, type):
     """ Отправляет запрос на сервер """
 
-    message = get_request(url)
+    message = get_request(url, type)
     server_address = (address, port)
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.settimeout(10)
+    data = None
     try:
         sock.sendto(binascii.unhexlify(message), server_address)
         data, _ = sock.recvfrom(4096)
+    except:
+        return None
     finally:
         sock.close()
+    if data is None:
+        return None
     return binascii.hexlify(data).decode("utf-8")
 
 
@@ -149,15 +189,45 @@ def parse_answer(answer, url):
     return get_IP(ANSWER, url)
 
 
+def parse_question(question):
+    """ Работает с вопросом у ответа сервера """
+
+    URL = []
+    i = 12
+    while question[i] != "00":
+        section_len = int(question[i], 16)
+        section = []
+        for j in range(i + 1, i + section_len + 1):
+            section.append(chr(int(question[j], 16)))
+        URL.append("".join(section))
+        i += section_len + 1
+    return ".".join(URL)
+
+
 def get_ip_from_url(url):
     """ Основная функция получения IP-адреса по URL """
 
+    if ".multiply" in url:
+        return multiply(url)
     ip = check_data_in_cash(url)
     if ip is not None:
         return f"(from cash) {ip}"
-    answer = send_udp_message(url, ADDRESS, PORT)
+    answer = send_udp_message(url, ADDRESS, PORT, "i")
     ip = parse_answer(answer, url)
     return ip
+
+
+def get_url_from_ip(ip):
+    """ Основная функция получения URL-адреса по IP """
+
+    url = check_data_in_cash(ip)
+    if url is not None:
+        return f"(from cash) {url}"
+    question = send_udp_message(ip, ADDRESS, PORT, "u")
+    if question is None:
+        return "Что-то пошло не так!"
+    url = parse_question(question)
+    return url
 
 
 def cashing_new_data(url, ip, death_time):
@@ -188,3 +258,15 @@ def check_data_in_cash(url):
                 del cash[cash[url][0]]
                 del cash[url]
         return None
+
+
+def multiply(url):
+    """ Умножает числа по модулю 256 """
+
+    url = url.split(".")
+    if url[-1] == "":
+        del url[-1]
+    mult = 1
+    for section in url[:url.index("multiply")]:
+        mult = mult * int(section) % 256
+    return f"127.0.0.{mult}"

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import dns_lib
+import os
 
 
 def run():
@@ -23,6 +24,10 @@ def get_args(key):
         return False
     elif key in ['-u', '--get_url']:
         get_url_from_ip()
+        return False
+    elif key in ['-d', '--delete_cash']:
+        delete_cash()
+        print("Кэш отчищен!")
         return False
     elif key in ['-e', '--exit']:
         print("Спасибо, что воспользовались нашим мини DNS-сервером!")
@@ -52,5 +57,12 @@ def get_url_from_ip():
     """ Выводит URL по IP-адресу """
 
     ip = input("Введите IP-адрес: ")
-    url = dns_lib.get_ip_from_url(dns_lib.get_PTR(ip))
+    url = dns_lib.get_url_from_ip(ip)
     print(f"IP-адрес: {url}")
+
+
+def delete_cash():
+    """ Очищает кэш """
+
+    if os.path.exists("cash.json"):
+        os.remove("cash.json")
