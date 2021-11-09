@@ -145,7 +145,7 @@ def get_URL(ANSWER, ip):
     RDATA_in_bites = ANSWER[12:12 + RDLENGTH]
     TTL = int(''.join(ANSWER[6:10]), 16)
     death_time = datetime.datetime.now() + datetime.timedelta(seconds=TTL)
-    URL = get_url_from_bites(RDATA_in_bites[:RDATA_in_bites.index('00')])[4:]
+    URL = get_url_from_bites(RDATA_in_bites[:RDATA_in_bites.index('00')])
     cashing_new_data(URL, ip, death_time)
     return URL
 

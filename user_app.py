@@ -58,7 +58,7 @@ def get_url_from_ip():
 
     ip = input("Введите IP-адрес: ")
     url = dns_lib.get_url_from_ip(ip)
-    print(f"IP-адрес: {url}")
+    print(f"URL-адрес: {url}")
 
 
 def delete_cash():
